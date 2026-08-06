@@ -2,9 +2,8 @@
 
 ## Repo state
 
-- Greenfield repository: **zero commits** on `master`, no remote configured, no source code.
-- No `package.json`, no build/test/lint/typecheck tooling, no CI, no `opencode.json`. There are no commands to run yet — the first commit has not been made. The repo name suggests an AI-native library, but no stack is scaffolded.
-- Do not hunt for existing code, fixtures, or conventions; there are none.
+- Public repository on GitHub (`huoyu5/ai-native-library2`), default branch `master`. Contains domain docs (`CONTEXT.md`, `docs/adr/`), the MVP spec and the implementation ticket queue (as GitHub issues).
+- No source code yet — no `package.json`, no build/test/lint/typecheck tooling, no CI. The first implementation ticket (`01 — 工程骨架`) scaffolds the TypeScript full-stack web app.
 
 ## Agent skills
 
@@ -16,7 +15,7 @@ This repo carries Matt Pocock's engineering skills as project-level skills in `.
 
 ### Issue tracker
 
-Issues and specs live as local markdown files under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+Issues and specs live as GitHub issues (spec = `#1`, tickets = `#2`–`#15`). Use the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
