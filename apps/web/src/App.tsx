@@ -26,6 +26,23 @@ interface TitleResult {
   copies: SearchCopy[]
 }
 
+interface Suggestion {
+  id: string
+  isbn: string
+  fields: {
+    title?: string
+    author?: string
+    category?: string
+    publisher?: string
+    isbn?: string
+    subjects?: string[]
+  }
+  fieldSources: Record<string, string>
+  status: 'pending' | 'approved' | 'rejected'
+  appliedBookId?: string
+  rejectedReason?: string
+}
+
 /**
  * 馆员工作台（Ticket 05 浏览器 seam）+ 免登录公共检索（Ticket 09 浏览器 seam）。
  * 未登录展示公共检索（关键词）与登录表单；登录后为扫码借还工作台。
@@ -41,13 +58,15 @@ export default function App() {
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<TitleResult[]>([])
+  const [isbn, setIsbn] = useState('')
+  const [catalogSuggestions, setCatalogSuggestions] = useState<Suggestion[]>([])
 
   async function api(url: string, init: RequestInit = {}) {
     const res = await fetch(url, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...(init.headers ?? {}),
       },
     })
@@ -121,6 +140,62 @@ export default function App() {
     try {
       const d = await api(`/api/search?q=${encodeURIComponent(query)}`)
       setResults((d.results as TitleResult[]) ?? [])
+    } catch (err) {
+      setError(String(err))
+    }
+  }
+
+  // 自动编目 + 审核（Ticket 11）：扫码 ISBN → 建议(标来源) → 馆员确认/拒绝后入库
+  async function submitCatalog(e: FormEvent) {
+    e.preventDefault()
+    setError('')
+    try {
+      const d = await api('/api/cataloging/submit', {
+        method: 'POST',
+        body: JSON.stringify({ isbn }),
+      })
+      const s = d.suggestion as Suggestion
+      setIsbn('')
+      setCatalogSuggestions((prev) => [s, ...prev.filter((x) => x.id !== s.id)])
+      setMessage('已生成编目建议，待审核')
+    } catch (err) {
+      setError(String(err))
+    }
+  }
+
+  async function refreshCatalogSuggestions() {
+    try {
+      const d = await api('/api/cataloging')
+      setCatalogSuggestions((d.suggestions as Suggestion[]) ?? [])
+    } catch (err) {
+      setError(String(err))
+    }
+  }
+
+  async function approveSuggestion(id: string) {
+    setError('')
+    try {
+      const d = await api(`/api/cataloging/${id}/approve`, { method: 'POST' })
+      setCatalogSuggestions((prev) =>
+        prev.map((s) => (s.id === id ? (d.suggestion as Suggestion) : s)),
+      )
+      setMessage('已确认入库')
+    } catch (err) {
+      setError(String(err))
+    }
+  }
+
+  async function rejectSuggestion(id: string) {
+    setError('')
+    try {
+      const d = await api(`/api/cataloging/${id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: '馆员拒绝' }),
+      })
+      setCatalogSuggestions((prev) =>
+        prev.map((s) => (s.id === id ? (d.suggestion as Suggestion) : s)),
+      )
+      setMessage('已拒绝，不入库')
     } catch (err) {
       setError(String(err))
     }
@@ -224,6 +299,59 @@ export default function App() {
             {loans.map((l) => (
               <li key={l.id}>
                 条码 {l.barcode} · {l.status} · 应还 {l.dueAt}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section>
+        <h2>自动编目审核</h2>
+        <form onSubmit={submitCatalog}>
+          <input
+            aria-label="ISBN"
+            value={isbn}
+            onChange={(e) => setIsbn(e.target.value)}
+            placeholder="扫描/输入 ISBN"
+          />
+          <button type="submit">生成建议</button>
+          <button type="button" onClick={refreshCatalogSuggestions}>
+            刷新列表
+          </button>
+        </form>
+        {catalogSuggestions.length === 0 ? (
+          <p>暂无建议</p>
+        ) : (
+          <ul>
+            {catalogSuggestions.map((s) => (
+              <li key={s.id}>
+                <strong>{s.fields.title ?? s.isbn}</strong> · ISBN {s.isbn} ·{' '}
+                {s.fields.author ? `作者 ${s.fields.author}` : ''}
+                {s.fields.publisher ? ` · ${s.fields.publisher}` : ''}
+                {s.fields.category ? ` · ${s.fields.category}` : ''} ·{' '}
+                {s.status === 'pending' ? (
+                  <>
+                    <span>待审核</span>{' '}
+                    <button onClick={() => approveSuggestion(s.id)}>确认入库</button>{' '}
+                    <button onClick={() => rejectSuggestion(s.id)}>拒绝</button>
+                  </>
+                ) : s.status === 'approved' ? (
+                  <span>已入库</span>
+                ) : (
+                  <span>已拒绝{s.rejectedReason ? `：${s.rejectedReason}` : ''}</span>
+                )}
+                <ul>
+                  {Object.entries(s.fields).map(([key, value]) =>
+                    value && Array.isArray(value) ? (
+                      <li key={key}>
+                        {key}: {value.join('、')}（{s.fieldSources[key] ?? 'ai'}）
+                      </li>
+                    ) : value ? (
+                      <li key={key}>
+                        {key}: {String(value)}（{s.fieldSources[key] ?? 'ai'}）
+                      </li>
+                    ) : null,
+                  )}
+                </ul>
               </li>
             ))}
           </ul>
