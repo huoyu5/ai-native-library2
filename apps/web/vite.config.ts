@@ -6,10 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        rewrite: (path) => path.replace(/^\/api/, '')
-      }
+      // 原样转发 /api/* → server（server 路由统一带 /api 前缀）
+      '/api': 'http://localhost:3000'
     }
   },
   test: {
