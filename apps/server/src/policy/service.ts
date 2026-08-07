@@ -12,13 +12,16 @@ export interface LoanPolicy {
   loanWeeksByReaderKind: Record<ReaderKind, number>
   /** 允许的续借次数 */
   renewalsAhead: number
+  /** 班级套书单期借期（周；一学期约 18 周，Ticket 07） */
+  classLoanWeeks: number
 }
 
-/** 学校默认政策（spec：学生 2 周、教师 4 周、同时 5 本、可续借 1 次）。 */
+/** 学校默认政策（spec：学生 2 周、教师 4 周、同时 5 本、可续借 1 次、套书一学期）。 */
 export const DEFAULT_LOAN_POLICY: LoanPolicy = {
   maxActiveLoansPerReader: 5,
   loanWeeksByReaderKind: { student: 2, teacher: 4 },
   renewalsAhead: 1,
+  classLoanWeeks: 18,
 }
 
 export class PolicyValidationError extends Error {
@@ -54,6 +57,10 @@ export class LoanPolicyService {
     if (patch.renewalsAhead !== undefined) {
       assertNonNegativeInt(patch.renewalsAhead, 'renewalsAhead')
       next.renewalsAhead = patch.renewalsAhead
+    }
+    if (patch.classLoanWeeks !== undefined) {
+      assertPositiveInt(patch.classLoanWeeks, 'classLoanWeeks')
+      next.classLoanWeeks = patch.classLoanWeeks
     }
     if (patch.loanWeeksByReaderKind !== undefined) {
       for (const [kind, weeks] of Object.entries(patch.loanWeeksByReaderKind)) {

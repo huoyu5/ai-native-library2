@@ -5,6 +5,8 @@ import {
   CopyUnavailableError,
   LoanLimitError,
   NotFoundError,
+  RenewalLimitError,
+  ValidationError,
 } from './service.js'
 
 /**
@@ -47,6 +49,45 @@ export function registerCirculationRoutes(app: FastifyInstance, circ: Circulatio
     },
   )
 
+  // 续借（Ticket 07）：馆员为读者延长一次借期；超过续借上限应拒绝。
+  app.post(
+    '/api/loans/renew',
+    { preHandler: [requireRoles(app, 'librarian')] },
+    async (req, reply) => {
+      const { barcode } = req.body as { barcode?: string }
+      try {
+        const loan = circ.renewLoan(String(barcode ?? ''))
+        return {
+          ...loan,
+          status: circ.statusOf(loan.id),
+        }
+      } catch (error) {
+        return mapCirculationError(reply, error)
+      }
+    },
+  )
+
+  // 班级套书借出（Ticket 07）：一批副本关联班级、按学期期限一次借出。
+  app.post(
+    '/api/loans/class-set',
+    { preHandler: [requireRoles(app, 'librarian')] },
+    async (req, reply) => {
+      const { className, barcodes } = req.body as {
+        className?: string
+        barcodes?: string[]
+      }
+      try {
+        const loans = circ.checkoutClassSet(
+          String(className ?? ''),
+          Array.isArray(barcodes) ? barcodes.map((b) => String(b)) : [],
+        )
+        return reply.code(201).send({ loans })
+      } catch (error) {
+        return mapCirculationError(reply, error)
+      }
+    },
+  )
+
   app.get(
     '/api/loans/reader/:readerId',
     { preHandler: [requireRoles(app, 'librarian')] },
@@ -79,6 +120,8 @@ export function registerCirculationRoutes(app: FastifyInstance, circ: Circulatio
 function mapCirculationError(reply: FastifyReply, error: unknown) {
   if (error instanceof LoanLimitError) return reply.code(400).send({ error: error.message })
   if (error instanceof CopyUnavailableError) return reply.code(400).send({ error: error.message })
+  if (error instanceof RenewalLimitError) return reply.code(400).send({ error: error.message })
+  if (error instanceof ValidationError) return reply.code(422).send({ error: error.message })
   if (error instanceof NotFoundError) return reply.code(404).send({ error: error.message })
   throw error
 }

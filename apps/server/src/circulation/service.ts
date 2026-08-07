@@ -13,12 +13,19 @@ export type LoanStatus = 'active' | 'returned' | 'overdue'
 
 export interface Loan {
   id: string
+  /** 借阅人：个人借阅为读者 id；班级套书借阅为合成占位 `class:<班级名>`。 */
   readerId: string
   /** 借出的副本条码 */
   barcode: string
   loanedAt: string
   dueAt: string
   returnedAt?: string
+  /** 借阅类型：individual 个人借阅 / class 班级套书（Ticket 07）。 */
+  kind: 'individual' | 'class'
+  /** 班级套书借阅时为班级名，否则 undefined */
+  className?: string
+  /** 已续借次数（Ticket 07）。 */
+  renewCount: number
 }
 
 /** 逾期借阅视图：借用 + 读者摘要（Ticket 08）。 */
@@ -46,6 +53,20 @@ export class NotFoundError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'NotFoundError'
+  }
+}
+
+export class RenewalLimitError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RenewalLimitError'
+  }
+}
+
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ValidationError'
   }
 }
 
@@ -81,11 +102,76 @@ export class CirculationService {
       id: randomUUID(),
       readerId,
       barcode,
+      kind: 'individual',
+      renewCount: 0,
       loanedAt: now.toISOString(),
       dueAt,
     }
     this.loans.set(loan.id, loan)
     return loan
+  }
+
+  /**
+   * 续借一次（Ticket 07）：到期日按读者类型期限向后顺延，续借次数 +1。
+   * 达到政策 `renewalsAhead` 上限后再续被拒；班级套书不可续借。
+   */
+  renewLoan(barcode: string, now: Date = new Date()): Loan {
+    const loan = this.activeLoanByBarcode(barcode)
+    if (!loan) throw new NotFoundError(`no active loan for copy: ${barcode}`)
+    if (loan.kind === 'class') {
+      throw new RenewalLimitError('class-set loans cannot be renewed')
+    }
+    const policy = this.readPolicy()
+    if (loan.renewCount >= policy.renewalsAhead) {
+      throw new RenewalLimitError('this loan has already been renewed the maximum number of times')
+    }
+    const reader = this.readers.findById(loan.readerId)
+    const weeks = policy.loanWeeksByReaderKind[reader?.kind ?? 'student']
+    loan.renewCount += 1
+    loan.dueAt = new Date(now.getTime() + weeks * 7 * 24 * 60 * 60 * 1000).toISOString()
+    return loan
+  }
+
+  /**
+   * 班级套书借出（Ticket 07，spec）：一批副本关联班级、按学期（classLoanWeeks）期限一次借出。
+   * 原子性：先对全部条码做存在性与可借校验，任何失败均不落任何记录。
+   */
+  checkoutClassSet(className: string, barcodes: string[], now: Date = new Date()): Loan[] {
+    const name = className.trim()
+    if (!name) throw new ValidationError('className is required')
+    if (barcodes.length === 0) throw new ValidationError('at least one barcode is required')
+    if (new Set(barcodes).size !== barcodes.length) {
+      throw new ValidationError('duplicate barcodes are not allowed')
+    }
+
+    // 先全量校验，任一条码不可用则整批失败（不产生部分借出）。
+    for (const barcode of barcodes) {
+      if (!this.catalog.findCopyByBarcode(barcode)) {
+        throw new NotFoundError(`copy not found: ${barcode}`)
+      }
+      if (this.activeLoanByBarcode(barcode)) {
+        throw new CopyUnavailableError(`copy already on loan: ${barcode}`)
+      }
+    }
+
+    const weeks = this.readPolicy().classLoanWeeks
+    const dueAt = new Date(now.getTime() + weeks * 7 * 24 * 60 * 60 * 1000).toISOString()
+    const loans: Loan[] = []
+    for (const barcode of barcodes) {
+      const loan: Loan = {
+        id: randomUUID(),
+        readerId: `class:${name}`,
+        barcode,
+        kind: 'class',
+        className: name,
+        renewCount: 0,
+        loanedAt: now.toISOString(),
+        dueAt,
+      }
+      this.loans.set(loan.id, loan)
+      loans.push(loan)
+    }
+    return loans
   }
 
   returnCopy(barcode: string, now: Date = new Date()): Loan {
@@ -144,6 +230,11 @@ export class CirculationService {
 
   allLoans(): Loan[] {
     return [...this.loans.values()]
+  }
+
+  /** 当前（未归还）借阅列表（供统计/测试断言）。 */
+  listActiveLoans(): Loan[] {
+    return [...this.loans.values()].filter((l) => !l.returnedAt)
   }
 
   private activeLoanByBarcode(barcode: string): Loan | undefined {
