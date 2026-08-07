@@ -1,6 +1,8 @@
 import Fastify from 'fastify'
 import jwt from '@fastify/jwt'
 import { registerAuthRoutes, requireRoles } from './auth/routes.js'
+import { ReaderService } from './readers/service.js'
+import { registerReaderRoutes } from './readers/routes.js'
 
 /**
  * Builds the Fastify application without listening, so tests can use `app.inject`.
@@ -28,6 +30,9 @@ export function buildApp(opts?: { jwtSecret?: string }) {
   app.get('/api/admin/users', { preHandler: [requireRoles(app, 'admin')] }, async () => ({
     users: [],
   }))
+
+  // 读者管理 (Ticket 04) —— 馆员业务操作（应用服务 seam + HTTP seam）
+  registerReaderRoutes(app, new ReaderService())
 
   return app
 }
