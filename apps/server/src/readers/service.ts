@@ -63,4 +63,15 @@ export class ReaderService {
   list(): Reader[] {
     return [...this.readers.values()]
   }
+
+  /** 备份快照（Ticket 14）。 */
+  snapshot(): Reader[] {
+    return [...this.readers.values()]
+  }
+
+  /** 恢复（Ticket 14）：清空后按快照重建。 */
+  restore(readers: Reader[]): void {
+    this.readers.clear()
+    for (const reader of readers) this.readers.set(reader.id, reader)
+  }
 }

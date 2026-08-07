@@ -1,5 +1,9 @@
 import Fastify from 'fastify'
 import jwt from '@fastify/jwt'
+import fastifyStatic from '@fastify/static'
+import { existsSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { registerAuthRoutes, requireRoles } from './auth/routes.js'
 import { ReaderService } from './readers/service.js'
 import { registerReaderRoutes } from './readers/routes.js'
@@ -25,6 +29,8 @@ import { createAiFill } from './cataloging/ai-fill.js'
 import { registerCatalogingRoutes } from './cataloging/routes.js'
 import { ImportService } from './import/service.js'
 import { registerImportRoutes } from './import/routes.js'
+import { BackupService } from './backup/service.js'
+import { registerBackupRoutes } from './backup/routes.js'
 
 /**
  * Builds the Fastify application without listening, so tests can use `app.inject`.
@@ -106,6 +112,27 @@ export function buildApp(opts?: { jwtSecret?: string; aiConfig?: AiAppConfig }) 
   // 初始建库：批量导入 (Ticket 13) —— 复用编目富化管线，预览→修正→确认入库
   const imports = new ImportService({ cataloging, catalog })
   registerImportRoutes(app, imports)
+
+  // 数据备份与恢复 (Ticket 14) —— 馆员可全量导出/恢复快照
+  const backup = new BackupService({ readers, catalog, circulation, cataloging, imports })
+  registerBackupRoutes(app, backup)
+
+  // 静态资源服务 (Ticket 14 部署) —— 生产环境下 server 兼任前端静态托管（单体部署）
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const webDist = resolve(__dirname, '../../web/dist')
+  if (existsSync(webDist)) {
+    app.register(fastifyStatic, {
+      root: webDist,
+      prefix: '/',
+    })
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/api/')) {
+        reply.code(404).send({ error: 'not found' })
+      } else {
+        reply.sendFile('index.html')
+      }
+    })
+  }
 
   return app
 }

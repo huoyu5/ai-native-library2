@@ -201,6 +201,17 @@ export class ImportService {
     return [...this.batches.values()]
   }
 
+  /** 备份快照（Ticket 14）。 */
+  snapshot(): ImportBatch[] {
+    return [...this.batches.values()]
+  }
+
+  /** 恢复（Ticket 14）：清空后按快照重建。 */
+  restore(batches: ImportBatch[]): void {
+    this.batches.clear()
+    for (const b of batches) this.batches.set(b.id, b)
+  }
+
   /** 行级校验：必须有题名；条码不得与目录或批内其它行冲突。 */
   private classify(batch: ImportBatch): void {
     const seen = new Map<string, number>() // barcode -> row index

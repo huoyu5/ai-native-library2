@@ -237,6 +237,17 @@ export class CirculationService {
     return [...this.loans.values()].filter((l) => !l.returnedAt)
   }
 
+  /** 备份快照（Ticket 14）。 */
+  snapshot(): { loans: Loan[] } {
+    return { loans: [...this.loans.values()] }
+  }
+
+  /** 恢复（Ticket 14）：清空后按快照重建。 */
+  restore(data: { loans: Loan[] }): void {
+    this.loans.clear()
+    for (const loan of data.loans) this.loans.set(loan.id, loan)
+  }
+
   private activeLoanByBarcode(barcode: string): Loan | undefined {
     return [...this.loans.values()].find((l) => l.barcode === barcode && !l.returnedAt)
   }

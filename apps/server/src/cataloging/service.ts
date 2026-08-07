@@ -196,6 +196,21 @@ export class CatalogingService {
   list(): CatalogingSuggestion[] {
     return [...this.suggestions.values()]
   }
+
+  /** 备份快照（Ticket 14）。 */
+  snapshot(): CatalogingSuggestion[] {
+    return [...this.suggestions.values()]
+  }
+
+  /** 恢复（Ticket 14）：清空后按快照重建（含 ISBN 幂等索引）。 */
+  restore(suggestions: CatalogingSuggestion[]): void {
+    this.suggestions.clear()
+    this.byIsbn.clear()
+    for (const s of suggestions) {
+      this.suggestions.set(s.id, s)
+      this.byIsbn.set(s.isbn, s.id)
+    }
+  }
 }
 
 function isTruthy(value: unknown): boolean {

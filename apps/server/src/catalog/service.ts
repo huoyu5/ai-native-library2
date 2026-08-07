@@ -149,6 +149,26 @@ export class CatalogService {
     return [...this.titles.values()]
   }
 
+  /** 备份快照（Ticket 14）。 */
+  snapshot(): { titles: Title[]; copies: Copy[] } {
+    return {
+      titles: [...this.titles.values()],
+      copies: [...this.copies.values()],
+    }
+  }
+
+  /** 恢复（Ticket 14）：清空后按快照重建。 */
+  restore(data: { titles: Title[]; copies: Copy[] }): void {
+    this.titles.clear()
+    this.copies.clear()
+    this.barcodes.clear()
+    for (const t of data.titles) this.titles.set(t.id, t)
+    for (const c of data.copies) {
+      this.copies.set(c.id, c)
+      this.barcodes.set(c.barcode, c)
+    }
+  }
+
   /**
    * 关键词检索题名元数据（Ticket 09 公共检索）。按字段命中度排序：题名权重最高。
    * 命中字段：题名、作者、ISBN、分类、主题、出版方（不区分大小写，子串匹配）。
