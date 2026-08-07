@@ -26,6 +26,25 @@ interface TitleResult {
   copies: SearchCopy[]
 }
 
+interface MatchReason {
+  keyword: string
+  field: string
+}
+
+interface NaturalResult extends TitleResult {
+  score: number
+  reasons: MatchReason[]
+}
+
+interface NaturalResponse {
+  query: string
+  mode: 'semantic' | 'keyword'
+  degraded: boolean
+  interpretation: string
+  keywords: string[]
+  results: NaturalResult[]
+}
+
 interface Suggestion {
   id: string
   isbn: string
@@ -58,6 +77,8 @@ export default function App() {
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<TitleResult[]>([])
+  const [nlQuery, setNlQuery] = useState('')
+  const [natural, setNatural] = useState<NaturalResponse | null>(null)
   const [isbn, setIsbn] = useState('')
   const [catalogSuggestions, setCatalogSuggestions] = useState<Suggestion[]>([])
 
@@ -140,6 +161,25 @@ export default function App() {
     try {
       const d = await api(`/api/search?q=${encodeURIComponent(query)}`)
       setResults((d.results as TitleResult[]) ?? [])
+    } catch (err) {
+      setError(String(err))
+    }
+  }
+
+  // 自然语言检索（Ticket 12）：免登录；相关度排序 + 引用依据；AI 不可用自动降级
+  async function runNaturalSearch(e: FormEvent) {
+    e.preventDefault()
+    setError('')
+    try {
+      const d = await api(`/api/search/natural?q=${encodeURIComponent(nlQuery)}`)
+      setNatural({
+        query: String(d.query ?? nlQuery),
+        mode: d.mode === 'semantic' ? 'semantic' : 'keyword',
+        degraded: Boolean(d.degraded),
+        interpretation: String(d.interpretation ?? ''),
+        keywords: Array.isArray(d.keywords) ? d.keywords.map(String) : [],
+        results: (d.results as NaturalResult[]) ?? [],
+      })
     } catch (err) {
       setError(String(err))
     }
@@ -237,6 +277,46 @@ export default function App() {
                 </li>
               ))}
             </ul>
+          )}
+        </section>
+        <section>
+          <h2>自然语言检索</h2>
+          <form onSubmit={runNaturalSearch}>
+            <input
+              aria-label="自然语言问题"
+              value={nlQuery}
+              onChange={(e) => setNlQuery(e.target.value)}
+              placeholder="例如：有没有讲友谊的儿童故事？"
+            />
+            <button type="submit">智能检索</button>
+          </form>
+          {natural && (
+            <div>
+              <p>
+                理解：{natural.interpretation} · 模式 {natural.mode}
+                {natural.degraded ? '（AI 不可用，已降级为关键词检索）' : ''}
+              </p>
+              {natural.results.length === 0 ? (
+                <p>暂无结果</p>
+              ) : (
+                <ul>
+                  {natural.results.map((r) => (
+                    <li key={r.id}>
+                      {r.title}
+                      {r.author ? ` · ${r.author}` : ''}
+                      {r.availableShelf ? ` · 架位 ${r.availableShelf}` : ' · 暂无在馆副本'}
+                      <ul>
+                        {r.reasons.map((reason, idx) => (
+                          <li key={`${r.id}-${reason.field}-${idx}`}>
+                            依据：{reason.field} 命中「{reason.keyword}」
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </section>
         <section>

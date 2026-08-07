@@ -11,6 +11,8 @@ import { LoanPolicyService } from './policy/service.js'
 import { registerLoanPolicyRoutes } from './policy/routes.js'
 import { SearchService } from './search/service.js'
 import { registerSearchRoutes } from './search/routes.js'
+import { SemanticSearchService } from './search/semantic.js'
+import { createQueryInterpreter } from './search/interpreter.js'
 import { AuditLogger } from './audit/service.js'
 import { AiService, type AiBudget } from './ai/service.js'
 import type { AiProvider } from './ai/provider.js'
@@ -75,14 +77,21 @@ export function buildApp(opts?: { jwtSecret?: string; aiConfig?: AiAppConfig }) 
   // 借阅政策可配置 (Ticket 06) —— 系统管理员配置，实时生效于借出校验
   registerLoanPolicyRoutes(app, policyService)
 
-  // 公共检索 (Ticket 09) —— 免登录关键词检索（AI 降级路径）
+  // 公共检索 (Ticket 09) —— 免登录关键词检索（自然语言检索的降级路径）
   const search = new SearchService(catalog, circulation)
-  registerSearchRoutes(app, search)
 
   // AI 供应商抽象层 (Ticket 10) —— 管理员可切换 provider / 查询审计
   const audit = new AuditLogger()
   const ai = resolveAi(audit, opts?.aiConfig)
   registerAiRoutes(app, ai, audit)
+
+  // 自然语言检索 (Ticket 12) —— 免登录；AI 仅解析关键词，引用依据由目录命中推导；
+  // AI 不可用/超时/输出不可解析时自动降级为关键词检索。
+  const semantic = new SemanticSearchService({
+    search,
+    interpret: createQueryInterpreter(ai),
+  })
+  registerSearchRoutes(app, search, semantic)
 
   // 自动编目 + 审核门 (Ticket 11) —— 馆员扫码 ISBN → 建议(标来源) → 审核确认后入库
   // 外部书目库以内存 mock 提供（API seam 验证；真实集成替换 bib 实现即可）。
