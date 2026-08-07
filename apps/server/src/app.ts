@@ -3,6 +3,8 @@ import jwt from '@fastify/jwt'
 import { registerAuthRoutes, requireRoles } from './auth/routes.js'
 import { ReaderService } from './readers/service.js'
 import { registerReaderRoutes } from './readers/routes.js'
+import { CatalogService } from './catalog/service.js'
+import { registerCatalogRoutes } from './catalog/routes.js'
 
 /**
  * Builds the Fastify application without listening, so tests can use `app.inject`.
@@ -33,6 +35,9 @@ export function buildApp(opts?: { jwtSecret?: string }) {
 
   // 读者管理 (Ticket 04) —— 馆员业务操作（应用服务 seam + HTTP seam）
   registerReaderRoutes(app, new ReaderService())
+
+  // 题名与副本管理 (Ticket 03) —— 目录基础（ADR-0001 简化元数据）
+  registerCatalogRoutes(app, new CatalogService())
 
   return app
 }
