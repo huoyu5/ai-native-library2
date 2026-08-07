@@ -131,6 +131,13 @@ export class CirculationService {
     )
   }
 
+  /** 副本当前可借状态（公共检索用，Ticket 09）。 */
+  copyStatus(barcode: string, now: Date = new Date()): 'available' | 'borrowed' | 'overdue' {
+    const loan = this.activeLoanByBarcode(barcode)
+    if (!loan) return 'available'
+    return loan.dueAt < now.toISOString() ? 'overdue' : 'borrowed'
+  }
+
   find(loanId: string): Loan | undefined {
     return this.loans.get(loanId)
   }

@@ -148,4 +148,35 @@ export class CatalogService {
   listTitles(): Title[] {
     return [...this.titles.values()]
   }
+
+  /**
+   * 关键词检索题名元数据（Ticket 09 公共检索）。按字段命中度排序：题名权重最高。
+   * 命中字段：题名、作者、ISBN、分类、主题、出版方（不区分大小写，子串匹配）。
+   */
+  findTitlesByQuery(query: string): Title[] {
+    const q = query.trim().toLowerCase()
+    if (!q) return []
+    return [...this.titles.values()]
+      .map((title) => ({ title, score: this.matchScore(title, q) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score
+        return a.title.createdAt < b.title.createdAt ? -1 : 1
+      })
+      .map((x) => x.title)
+  }
+
+  private matchScore(title: Title, q: string): number {
+    const score = (v: string | undefined, weight: number): number =>
+      v && v.toLowerCase().includes(q) ? weight : 0
+    const best = Math.max(
+      score(title.title, 3),
+      score(title.author, 2),
+      score(title.isbn, 2),
+      score(title.category, 1),
+      score(title.publisher, 1),
+      title.subjects.some((s) => s.toLowerCase().includes(q)) ? 1 : 0,
+    )
+    return best
+  }
 }

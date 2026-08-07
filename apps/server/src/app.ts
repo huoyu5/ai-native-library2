@@ -9,6 +9,8 @@ import { CirculationService } from './circulation/service.js'
 import { registerCirculationRoutes } from './circulation/routes.js'
 import { LoanPolicyService } from './policy/service.js'
 import { registerLoanPolicyRoutes } from './policy/routes.js'
+import { SearchService } from './search/service.js'
+import { registerSearchRoutes } from './search/routes.js'
 import { AuditLogger } from './audit/service.js'
 import { AiService, type AiBudget } from './ai/service.js'
 import type { AiProvider } from './ai/provider.js'
@@ -66,6 +68,10 @@ export function buildApp(opts?: { jwtSecret?: string; aiConfig?: AiAppConfig }) 
 
   // 借阅政策可配置 (Ticket 06) —— 系统管理员配置，实时生效于借出校验
   registerLoanPolicyRoutes(app, policyService)
+
+  // 公共检索 (Ticket 09) —— 免登录关键词检索（AI 降级路径）
+  const search = new SearchService(catalog, circulation)
+  registerSearchRoutes(app, search)
 
   // AI 供应商抽象层 (Ticket 10) —— 管理员可切换 provider / 查询审计
   const audit = new AuditLogger()
