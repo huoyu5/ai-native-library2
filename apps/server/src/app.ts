@@ -7,12 +7,24 @@ import { CatalogService } from './catalog/service.js'
 import { registerCatalogRoutes } from './catalog/routes.js'
 import { CirculationService } from './circulation/service.js'
 import { registerCirculationRoutes } from './circulation/routes.js'
+import { AuditLogger } from './audit/service.js'
+import { AiService, type AiBudget } from './ai/service.js'
+import type { AiProvider } from './ai/provider.js'
+import { FakeAiProvider } from './ai/fake.js'
+import { DeepSeekProvider } from './ai/deepseek.js'
+import { registerAiRoutes } from './ai/routes.js'
 
 /**
  * Builds the Fastify application without listening, so tests can use `app.inject`.
  * The HTTP/API seam lives here: all future API routes register onto this app.
  */
-export function buildApp(opts?: { jwtSecret?: string }) {
+export interface AiAppConfig {
+  /** provider 名；缺省时按环境/降级决定（无 key → fake） */
+  provider?: string
+  budget?: Partial<AiBudget>
+}
+
+export function buildApp(opts?: { jwtSecret?: string; aiConfig?: AiAppConfig }) {
   const app = Fastify({ logger: false })
 
   // JWT sign/verify (Ticket 02). Secret from env or a dev fallback.
@@ -49,5 +61,37 @@ export function buildApp(opts?: { jwtSecret?: string }) {
   // 个人借阅闭环 (Ticket 05)
   registerCirculationRoutes(app, circulation)
 
+  // AI 供应商抽象层 (Ticket 10) —— 管理员可切换 provider / 查询审计
+  const audit = new AuditLogger()
+  const ai = resolveAi(audit, opts?.aiConfig)
+  registerAiRoutes(app, ai, audit)
+
   return app
+}
+
+/** 供应商解析：默认国内模型（DeepSeek）；无 key、未知 provider 或显式需求时降级到 fake，保证无 AI 也可用（spec「降级」边界）。 */
+function resolveAi(audit: AuditLogger, cfg?: AiAppConfig): AiService {
+  const providers = new Map<string, AiProvider>()
+  providers.set('fake', new FakeAiProvider('fake', (req) => ({ text: `[[fake:${req.prompt}]]` })))
+  const deepseekKey = process.env.DEEPSEEK_API_KEY
+  if (deepseekKey) providers.set('deepseek', new DeepSeekProvider(deepseekKey))
+
+  const budget: AiBudget = {
+    timeoutMs: toNumber(process.env.AI_TIMEOUT_MS, 20_000),
+    maxOutputTokens: toNumber(process.env.AI_MAX_OUTPUT_TOKENS, 1000),
+    maxCalls: toNumber(process.env.AI_MAX_CALLS, 0),
+    ...cfg?.budget,
+  }
+
+  const requested =
+    cfg?.provider ??
+    process.env.AI_PROVIDER ??
+    (providers.has('deepseek') ? 'deepseek' : 'fake')
+  const defaultName = providers.has(requested) ? requested : 'fake'
+  return new AiService(audit, providers, defaultName, budget)
+}
+
+function toNumber(raw: string | undefined, fallback: number): number {
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : fallback
 }
