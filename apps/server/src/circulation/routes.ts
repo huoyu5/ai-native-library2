@@ -17,7 +17,12 @@ export function registerCirculationRoutes(app: FastifyInstance, circ: Circulatio
     const { readerId, barcode } = req.body as { readerId?: string; barcode?: string }
     try {
       const loan = circ.checkOut(String(readerId ?? ''), String(barcode ?? ''))
-      return reply.code(201).send({ ...loan, status: circ.statusOf(loan.id) })
+      return reply.code(201).send({
+        ...loan,
+        status: circ.statusOf(loan.id),
+        // 办理借出时的读者逾期警告（Ticket 08）
+        readerOverdue: circ.hasOverdue(loan.readerId),
+      })
     } catch (error) {
       return mapCirculationError(reply, error)
     }
@@ -30,7 +35,12 @@ export function registerCirculationRoutes(app: FastifyInstance, circ: Circulatio
       const { barcode } = req.body as { barcode?: string }
       try {
         const loan = circ.returnCopy(String(barcode ?? ''))
-        return { ...loan, status: circ.statusOf(loan.id) }
+        return {
+          ...loan,
+          status: circ.statusOf(loan.id),
+          // 办理归还时的读者逾期警告（Ticket 08）
+          readerOverdue: circ.hasOverdue(loan.readerId),
+        }
       } catch (error) {
         return mapCirculationError(reply, error)
       }
@@ -50,6 +60,20 @@ export function registerCirculationRoutes(app: FastifyInstance, circ: Circulatio
   app.get('/api/loans', { preHandler: [requireRoles(app, 'librarian')] }, async () => ({
     loans: circ.allLoans().map((l) => ({ ...l, status: circ.statusOf(l.id) })),
   }))
+
+  // 逾期借阅列表（Ticket 08，spec #17）。馆员可传 asOf 回看某一时刻的逾期快照。
+  app.get(
+    '/api/loans/overdue',
+    { preHandler: [requireRoles(app, 'librarian')] },
+    async (req, reply) => {
+      const q = req.query as { asOf?: string }
+      const asOf = typeof q?.asOf === 'string' && q.asOf.length > 0 ? new Date(q.asOf) : new Date()
+      if (Number.isNaN(asOf.getTime())) {
+        return reply.code(422).send({ error: 'invalid asOf timestamp' })
+      }
+      return { loans: circ.overdueLoans(asOf) }
+    },
+  )
 }
 
 function mapCirculationError(reply: FastifyReply, error: unknown) {

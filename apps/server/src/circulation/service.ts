@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { ReaderService } from '../readers/service.js'
+import type { ReaderService, ReaderKind } from '../readers/service.js'
 import type { CatalogService } from '../catalog/service.js'
 import { DEFAULT_LOAN_POLICY, type LoanPolicy } from '../policy/service.js'
 
@@ -19,6 +19,11 @@ export interface Loan {
   loanedAt: string
   dueAt: string
   returnedAt?: string
+}
+
+/** 逾期借阅视图：借用 + 读者摘要（Ticket 08）。 */
+export interface OverdueLoan extends Loan {
+  reader: { id: string; name: string; kind: ReaderKind }
 }
 
 export type { LoanPolicy }
@@ -100,6 +105,30 @@ export class CirculationService {
   /** 某读者当前（未归还）借阅。 */
   activeLoansOf(readerId: string): Loan[] {
     return [...this.loans.values()].filter((l) => l.readerId === readerId && !l.returnedAt)
+  }
+
+  /**
+   * 逾期借阅列表（Ticket 08）：未归还且已过到期日的借用，附读者信息，按到期升序。
+   * 供馆员查看逾期清单（spec #17）与收到读者逾期警告风险。
+   */
+  overdueLoans(now: Date = new Date()): OverdueLoan[] {
+    return [...this.loans.values()]
+      .filter((l) => !l.returnedAt && l.dueAt < now.toISOString())
+      .sort((a, b) => (a.dueAt < b.dueAt ? -1 : 1))
+      .map((l) => {
+        const reader = this.readers.findById(l.readerId)
+        return {
+          ...l,
+          reader: { id: l.readerId, name: reader?.name ?? '未知读者', kind: reader?.kind ?? 'student' },
+        }
+      })
+  }
+
+  /** 读者当前是否有逾期中的借用（办理借还时的警告依据）。 */
+  hasOverdue(readerId: string, now: Date = new Date()): boolean {
+    return [...this.loans.values()].some(
+      (l) => l.readerId === readerId && !l.returnedAt && l.dueAt < now.toISOString(),
+    )
   }
 
   find(loanId: string): Loan | undefined {
