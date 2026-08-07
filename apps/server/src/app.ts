@@ -21,6 +21,8 @@ import { CatalogingService } from './cataloging/service.js'
 import { MemoryCatalogBibProvider } from './cataloging/bib.js'
 import { createAiFill } from './cataloging/ai-fill.js'
 import { registerCatalogingRoutes } from './cataloging/routes.js'
+import { ImportService } from './import/service.js'
+import { registerImportRoutes } from './import/routes.js'
 
 /**
  * Builds the Fastify application without listening, so tests can use `app.inject`.
@@ -91,6 +93,10 @@ export function buildApp(opts?: { jwtSecret?: string; aiConfig?: AiAppConfig }) 
     catalog,
   })
   registerCatalogingRoutes(app, cataloging)
+
+  // 初始建库：批量导入 (Ticket 13) —— 复用编目富化管线，预览→修正→确认入库
+  const imports = new ImportService({ cataloging, catalog })
+  registerImportRoutes(app, imports)
 
   return app
 }

@@ -12,6 +12,16 @@ import type { CatalogService } from '../catalog/service.js'
  */
 
 export type CatalogField = 'title' | 'author' | 'isbn' | 'category' | 'subjects' | 'publisher'
+
+/** 参与编目的字段全集（富化管线按此顺序遍历）。 */
+export const CATALOG_FIELDS = [
+  'title',
+  'author',
+  'isbn',
+  'category',
+  'subjects',
+  'publisher',
+] as const satisfies readonly CatalogField[]
 export type FieldSource = 'external' | 'ai' | 'manual'
 export type SuggestionStatus = 'pending' | 'approved' | 'rejected'
 
@@ -78,6 +88,47 @@ export class CatalogingService {
 
   constructor(private readonly deps: CatalogingServiceDeps) {}
 
+  /**
+   * 编目富化管线（自动编目与批量导入共用，Ticket 11/13）：
+   * 已知字段(seed，来源 manual) → 外部书目补缺(external) → AI 补缺(ai)。
+   * 只做字段推导，不产生建议、不写目录。
+   */
+  async enrich(
+    isbn: string,
+    seed: SuggestionFields = {},
+  ): Promise<{ fields: SuggestionFields; fieldSources: Partial<Record<CatalogField, FieldSource>> }> {
+    let fields: SuggestionFields = {}
+    const source: Partial<Record<CatalogField, FieldSource>> = {}
+
+    // 1) 操作者/清单已给出的字段优先（来源 manual）
+    for (const key of CATALOG_FIELDS) {
+      if (!isTruthy(seed[key])) continue
+      fields = { ...fields, [key]: seed[key] as never }
+      source[key] = 'manual'
+    }
+
+    // 2) 外部书目库补缺（来源 external）
+    const normalized = isbn.trim()
+    const external = normalized ? ((await this.deps.bib.lookup(normalized)) ?? {}) : {}
+    for (const key of CATALOG_FIELDS) {
+      if (source[key] || !isTruthy(external[key])) continue
+      fields = { ...fields, [key]: external[key] as never }
+      source[key] = 'external'
+    }
+
+    // 3) AI 补缺（来源 ai）；AI 不可用时自然降级为「少几个字段」
+    if (normalized) {
+      const ai = await this.deps.aiFill(normalized, fields)
+      for (const key of CATALOG_FIELDS) {
+        if (source[key] || !isTruthy(ai[key])) continue
+        fields = { ...fields, [key]: ai[key] as never }
+        source[key] = 'ai'
+      }
+    }
+
+    return { fields, fieldSources: source }
+  }
+
   /** 扫码 ISBN → 生成待审建议；重复扫描幂等返回同一建议。 */
   async submit(isbn: string): Promise<CatalogingSuggestion> {
     const normalized = isbn.trim()
@@ -86,26 +137,7 @@ export class CatalogingService {
     const existingId = this.byIsbn.get(normalized)
     if (existingId) return this.suggestions.get(existingId)!
 
-    const external = (await this.deps.bib.lookup(normalized)) ?? {}
-
-    // 先取外部书目字段（来源 external）
-    let fields: SuggestionFields = {}
-    const source: Partial<Record<CatalogField, FieldSource>> = {}
-    for (const key of ['title', 'author', 'isbn', 'category', 'subjects', 'publisher'] as const) {
-      const value = external[key]
-      if (isTruthy(value)) {
-        fields = { ...fields, [key]: value as never }
-        source[key] = 'external'
-      }
-    }
-
-    // 缺失字段由 AI 补全（来源 ai）
-    const ai = await this.deps.aiFill(normalized, fields)
-    for (const key of ['title', 'author', 'isbn', 'category', 'subjects', 'publisher'] as const) {
-      if (source[key] || !isTruthy(ai[key])) continue
-      fields = { ...fields, [key]: ai[key] as never }
-      source[key] = 'ai'
-    }
+    const { fields, fieldSources: source } = await this.enrich(normalized)
 
     // 建议必须能给出题名，否则无法入库
     if (!fields.title || !fields.title.trim()) {
