@@ -1,0 +1,22 @@
+{
+  "name": "ai-native-library2",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI-native library management system for schools and small public libraries",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "dev": "pnpm --parallel -r dev"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "overrides": {
+      "typescript": "^5.9.3"
+    }
+  }
+}
