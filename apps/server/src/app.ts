@@ -7,6 +7,8 @@ import { CatalogService } from './catalog/service.js'
 import { registerCatalogRoutes } from './catalog/routes.js'
 import { CirculationService } from './circulation/service.js'
 import { registerCirculationRoutes } from './circulation/routes.js'
+import { LoanPolicyService } from './policy/service.js'
+import { registerLoanPolicyRoutes } from './policy/routes.js'
 import { AuditLogger } from './audit/service.js'
 import { AiService, type AiBudget } from './ai/service.js'
 import type { AiProvider } from './ai/provider.js'
@@ -50,7 +52,8 @@ export function buildApp(opts?: { jwtSecret?: string; aiConfig?: AiAppConfig }) 
   // 领域服务（内存驻留，各服务共享实例；后续 ticket 接入真实持久化）
   const readers = new ReaderService()
   const catalog = new CatalogService()
-  const circulation = new CirculationService(readers, catalog)
+  const policyService = new LoanPolicyService()
+  const circulation = new CirculationService(readers, catalog, () => policyService.get())
 
   // 读者管理 (Ticket 04) —— 馆员业务操作（应用服务 seam + HTTP seam）
   registerReaderRoutes(app, readers)
@@ -60,6 +63,9 @@ export function buildApp(opts?: { jwtSecret?: string; aiConfig?: AiAppConfig }) 
 
   // 个人借阅闭环 (Ticket 05)
   registerCirculationRoutes(app, circulation)
+
+  // 借阅政策可配置 (Ticket 06) —— 系统管理员配置，实时生效于借出校验
+  registerLoanPolicyRoutes(app, policyService)
 
   // AI 供应商抽象层 (Ticket 10) —— 管理员可切换 provider / 查询审计
   const audit = new AuditLogger()

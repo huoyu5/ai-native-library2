@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { ReaderService, ReaderKind } from '../readers/service.js'
+import type { ReaderService } from '../readers/service.js'
 import type { CatalogService } from '../catalog/service.js'
+import { DEFAULT_LOAN_POLICY, type LoanPolicy } from '../policy/service.js'
 
 /**
  * Ticket 05 — 个人借阅闭环 (Seam 1: 应用服务公共接口)。
  * 状态转换：借出 → 归还 / 逾期。政策边界：同时借出上限、学生 2 周/教师 4 周。
- * 默认政策内建（借阅政策可配置在 Ticket 06 演进）。
+ * 政策可配置（Ticket 06）：每次借出实时读取当前政策（`readPolicy` getter）。
  */
 
 export type LoanStatus = 'active' | 'returned' | 'overdue'
@@ -20,15 +21,7 @@ export interface Loan {
   returnedAt?: string
 }
 
-export interface LoanPolicy {
-  maxActiveLoansPerReader: number
-  loanWeeksByReaderKind: Record<ReaderKind, number>
-}
-
-export const DEFAULT_LOAN_POLICY: LoanPolicy = {
-  maxActiveLoansPerReader: 5,
-  loanWeeksByReaderKind: { student: 2, teacher: 4 },
-}
+export type { LoanPolicy }
 
 export class LoanLimitError extends Error {
   constructor(message: string) {
@@ -57,7 +50,7 @@ export class CirculationService {
   constructor(
     private readonly readers: ReaderService,
     private readonly catalog: CatalogService,
-    private readonly policy: LoanPolicy = DEFAULT_LOAN_POLICY,
+    private readonly readPolicy: () => LoanPolicy = () => DEFAULT_LOAN_POLICY,
   ) {}
 
   checkOut(readerId: string, barcode: string, now: Date = new Date()): Loan {
@@ -71,11 +64,12 @@ export class CirculationService {
       throw new CopyUnavailableError(`copy already on loan: ${barcode}`)
     }
 
-    if (this.activeLoansOf(readerId).length >= this.policy.maxActiveLoansPerReader) {
-      throw new LoanLimitError(`reader has reached the ${this.policy.maxActiveLoansPerReader}-loan limit`)
+    const policy = this.readPolicy()
+    if (this.activeLoansOf(readerId).length >= policy.maxActiveLoansPerReader) {
+      throw new LoanLimitError(`reader has reached the ${policy.maxActiveLoansPerReader}-loan limit`)
     }
 
-    const weeks = this.policy.loanWeeksByReaderKind[reader.kind]
+    const weeks = policy.loanWeeksByReaderKind[reader.kind]
     const dueAt = new Date(now.getTime() + weeks * 7 * 24 * 60 * 60 * 1000).toISOString()
 
     const loan: Loan = {
